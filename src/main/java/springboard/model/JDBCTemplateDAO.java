@@ -8,6 +8,9 @@ import java.util.Map;
 
 import org.springframework.jdbc.core.BeanPropertyRowMapper;
 import org.springframework.jdbc.core.JdbcTemplate;
+import org.springframework.jdbc.core.PreparedStatementCreator;
+import org.springframework.jdbc.core.PreparedStatementSetter;
+
 /*
 JDBCTemplate 관련 주요 메서드
 
@@ -29,7 +32,6 @@ int update(String sql)
 int update(String sql, Object[] args)
 	: 인파라미터가 있는 update/insert/delete 쿼리문을 처리할 때 사용한다.
  */
-import org.springframework.jdbc.core.PreparedStatementCreator;
 
 public class JDBCTemplateDAO {
 
@@ -84,6 +86,32 @@ public class JDBCTemplateDAO {
 		return (ArrayList<SpringBbsDTO>) template.query(sql, new BeanPropertyRowMapper<SpringBbsDTO>(SpringBbsDTO.class));
 	}
 	
+	public ArrayList<SpringBbsDTO> listPage(Map<String, Object> map){
+	
+		int start = Integer.parseInt(map.get("start").toString());
+		int end = Integer.parseInt(map.get("end").toString());
+		
+		String sql = ""
+				+"SELECT * FROM ("
+				+"    SELECT Tb.*, rownum rNum FROM ("
+				+"        SELECT * FROM springboard ";				
+			if(map.get("Word")!=null){
+				sql +=" WHERE "+map.get("Column")+" "
+					+ " LIKE '%"+map.get("Word")+"%' ";				
+			}			
+			sql += " ORDER BY idx DESC"
+			+"    ) Tb"
+			+")"
+			+" WHERE rNum BETWEEN "+start+" and "+end;
+		
+		return (ArrayList<SpringBbsDTO>)
+			template.query(sql, 
+				new BeanPropertyRowMapper<SpringBbsDTO>(
+				SpringBbsDTO.class));
+	}
+
+	
+	
 	
 	//글쓰기 처리
 	public int write(final SpringBbsDTO springBbsDTO) {
@@ -123,8 +151,123 @@ public class JDBCTemplateDAO {
 		
 		return result;
 	}
-}
 
+	//게시물 조회수 증가
+	public void updateHit(final String idx) {
+		
+		//쿼리문 작성
+		String sql = " UPDATE springboard SET hits=hits+1 WHERE idx=? ";
+		
+		//인파라미터를 채우기 위해 PreparedStatementSetter 사용
+		/*
+		행의 변화를 주는 쿼리문 실행이므로 update메서드를 사용한다.
+		첫번째 인자는 쿼리문, 두번째 인자는 익명클래스를 통해 인파라미터를 설정한다.
+		 */
+		template.update(sql, new PreparedStatementSetter() {
+			
+			@Override
+			public void setValues(PreparedStatement ps) throws SQLException {
+				ps.setInt(1, Integer.parseInt(idx));
+			}
+		});
+	}
+	
+	//게시물 상세보기
+	public SpringBbsDTO view(String idx) {
+		
+		//동시에 처리하기 위해서 view안에 updateHit을 넣어놓았다.
+		//조회수 증가 위한 메서드 호출
+		updateHit(idx);
+		
+		SpringBbsDTO dto = new SpringBbsDTO();
+		String sql = " SELECT * FROM springboard WHERE idx="+idx;
+		
+		//하나의 게시물만 보면 되기 때문에 queryForObject 사용
+		try {
+			/*
+			queryForObject() 메서드는 쿼리문을 실행한 후 반드시 하나의 결과를 반환해야 한다. 
+			그렇지 않으면 에러가 발생하게되므로 예외처리를 하는 것이 좋다.
+			
+			예전에 게시판작업할때는 전부 우리가 set처리해줬지만,
+			스프링에서는 BeanPropertyRowMapper가 전부 set 처리해준다.
+			커맨드객체인 DTO와 테이블과 form이름이 같으면 RowMapper가 알아서 처리해줌 
+			즉 RowMapper는 DTO 타입만 잘 입력해주면 됨
+			 */
+			dto = template.queryForObject(sql, new BeanPropertyRowMapper<SpringBbsDTO>(SpringBbsDTO.class));
+			/*
+			BeanPropertyRowMapper 클래스는 쿼리의 실행결과를 DTO에 저장해주는 역할을 한다.
+			이때 테이블의 컬럼명과 DTO의 멤버변수명은 일치해야한다.
+			 */
+		}
+		catch (Exception e) { 
+			System.out.println("View()실행시 예외발생");
+		}
+		return dto;
+	}
+	
+	public int password(String idx, String pass) {
+		
+		//일련번호는 1이상의 값을 가지기 때문에 패스워드 검증이 완료되었는지 되지 않았는지 확인할 수 있다.
+		int retNum = 0;
+		
+		String sql = " SELECT * FROM springboard WHERE pass='"+pass+"' AND idx="+idx;
+		
+		try {
+			/*
+		 	일련번호와 패스워드가 일치하는 게시물이 있는 경우 정상처리되고
+		 	만약 일치하는 게시물이 없으면 예외가 발생한다.
+		 	queryForObject()메서드는 반드시 하나의 결과가 나와야 하고, 
+		 	그렇지 못한 경우 예외를 발생시킨다.
+			 */
+			SpringBbsDTO dto = template.queryForObject(sql, new BeanPropertyRowMapper<SpringBbsDTO>(SpringBbsDTO.class));
+			
+			/*
+			일련번호는 시퀀스를 사용하므로 반드시 1이상의 값을 가지게 된다.
+			따라서 0이 반환된다면 패스워드 검증 실패로 판단할 수 있다.
+			 */
+			retNum = dto.getIdx();
+		}
+		catch (Exception e) {
+			System.out.println("password() 예외발생");
+		}
+		
+		return retNum;
+	}
+	
+	//수정처리 : 매개변수로 전달받는 값을 익명클래스내에서 사용할때 값을 변경할 수 없도록 final로 지정해야한다. 지정하지 않으면 에러가 발생한다.
+	public void edit(final SpringBbsDTO dto) {
+		
+		String sql = " UPDATE springboard SET name=?, title=?, contents=? WHERE idx=? AND pass=? ";
+		
+		template.update(sql, new PreparedStatementSetter() {
+			
+			@Override
+			public void setValues(PreparedStatement ps) throws SQLException {
+				ps.setString(1, dto.getName());
+				ps.setString(2, dto.getTitle());
+				ps.setString(3, dto.getContents());
+				ps.setInt(4, dto.getIdx());
+				ps.setString(5, dto.getPass());
+			}
+		});
+	}
+	
+	
+	public void delete(final String idx, final String pass) {
+		
+		String sql = " DELETE FROM springboard WHERE idx=? AND pass=? ";
+		
+		template.update(sql, new PreparedStatementSetter() {
+			
+			@Override
+			public void setValues(PreparedStatement ps) throws SQLException {
+				ps.setString(1, idx);
+				ps.setString(2, pass);;
+			}
+		});
+	}
+	
+}
 
 
 
