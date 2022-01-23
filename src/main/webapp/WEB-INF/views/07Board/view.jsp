@@ -46,9 +46,9 @@
 		</tr>		
 		<tr>
 			<td colspan="4" align="center">	
-			<button type="button" 
+			<%-- <button type="button" 
 				onclick="location.href='./reply.do?idx=${viewRow.idx}&nowPage=${nowPage }';">
-				답변글달기</button>
+				답변글달기</button> --%>
 			
 			<button type="button" 
 				onclick="location.href='./password.do?idx=${viewRow.idx}&mode=edit&nowPage=${nowPage }';">
